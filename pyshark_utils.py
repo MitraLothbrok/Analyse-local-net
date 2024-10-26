@@ -1,7 +1,7 @@
 import pyshark
 from collections import Counter
 import ipaddress
-import scapy_utils  # Наш модуль для работы с ARP
+import scapy_utils 
 
 # Загрузка MAC-адресов Apple
 mac_addresses = scapy_utils.load_mac_addresses("output.txt")
@@ -59,7 +59,7 @@ def analyze_pcapng(file):
             dst_ip = packet.ip.dst  # IP назначения
 
             # Исключаем пакеты от маршрутизатора и добавляем проверку на локальные IP
-            if src_ip != router_ip and is_local_ip(src_ip):
+            if is_local_ip(src_ip):
                 # Получаем MAC-адрес для IP отправителя
                 mac_src = scapy_utils.get_mac_address(src_ip, mac_addresses)
                 if mac_src:
@@ -88,7 +88,4 @@ def analyze_pcapng(file):
     print(f"Всего уникальных DNS запросов: {len(set(dns_requests))}")
     print(f"Всего ARP пакетов: {arp_packets}")
 
-    # Вызов функции подсчета уникальных устройств
-    count_devices_in_network(file)
-
-# Пример вызова анализа
+    

